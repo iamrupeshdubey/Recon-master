@@ -1,32 +1,56 @@
-#!/bin/bash
-echo -n "Enter domain you want to recon: "
-read DOMAIN
-mkdir -p recons&&cd recons
-mkdir -p $DOMAIN-recon&& cd $DOMAIN-recon
-assetfinder $DOMAIN |grep $DOMAIN |tee $DOMAIN.txt
-cat $DOMAIN.txt | sort -u | while read line; do
-    if [ $(curl --write-out %{http_code} --silent --output /dev/null -m 5 $line) = 000 ]
-    then
-      echo "$line was unreachable"
-      touch $DOMAIN-unreachable.html
-      echo "<b>$line</b> was unreachable<br>" >> $DOMAIN-unreachable.html
-    else
-      echo "$line is up"
-      echo $line >> $DOMAIN-responsive.txt
-    fi
- done
+#!/usr/bin/env bash
 
-awk '{print "https://"$0}' $DOMAIN-responsive.txt | sed -i 's/www.//' $DOMAIN-responsive.txt | sort -u $DOMAIN-responsive.txt > $DOMAIN-recon
-echo -e "\e[31mFinding js files in $DOMAIN\e[0m"
-cat $DOMAIN-recon | waybackurls | grep "\.js" | sort -u | tee $DOMAIN-temp
-cat $DOMAIN-temp | parallel -j50 -q curl -w 'Status:%{http_code}\t Size:%{size_download}\t %{url_effective}\n' -o /dev/null -sk| grep -v 404 | grep -v 429 | grep -v 000 | grep -v Size:0| tee $DOMAIN-js
-cat $DOMAIN-js | awk -F'\t ' '{print $3}' | tee $DOMAIN-jss
-rm -rf $DOMAIN.txt $DOMAIN-responsive.txt $DOMAIN-temp
-for k in `cat $DOMAIN-jss`
-do
-    echo "Finding end points in $k">>$DOMAIN-endpoints
-    ruby ~/relative/extract.rb $k>>$DOMAIN-endpoints
+while getopts ":d:w:o:" ops; do
+	case "${ops}" in
+		d)
+			domain=${OPTARG}
+			;;
+		w)
+			wordlist=${OPTARG}
+			;;
+		o)
+			OUTFOLDER=${OPTARG}
+ 			;;
+		\?)
+			echo -e "\033[1;31m[-] Error: -${OPTARG} is an Invalid Option"
+			exit
+			;;
+	esac
 done
 
-#echo -e "\e[31mRunning directory buster now\e[0m"
-#for i in `cat $DOMAIN-recon`; do dirb $i -o $DOMAIN-dirb;done
+[[ ! -d $OUTFOLDER ]] && mkdir $OUTFOLDER 2>/dev/null
+
+if [ -z "$domain" ]; then
+	echo -e "\n\033[31m[-] Unspecified domain Please use -d flag! ❌\033[m"
+	exit
+fi
+if [ -z "$OUTFOLDER" ]; then
+	echo -e "\n\033[31m[-] Please enter the output folder as it is not possible to create the folder with symbols! ❌\033[m"
+	exit
+fi
+if [ -z "$wordlist" ]; then
+	echo -e "\n\033[32m<<  \033[mYou didn't choose a wordlist. Here are your options: \033[32m >>\033[m"
+	for a in $(ls $SCRIPTPATH/wordlists/); do
+		pwdWL="$(cd $SCRIPTPATH/wordlists/; pwd)"
+		echo -e "\033[1;32m[+] $pwdWL/$a\033[m"
+	done
+	exit
+fi
+
+mkdir -p $OUTFOLDER
+cd $OUTFOLDER
+show_help() {
+	echo -e "\n\tUsage: \033[1;32m./recon.sh \033[35m[  domain ]"
+}
+
+echo -e "\n\033[36m[+] Finding the WAF present on the target 🔍\033[m"
+#wafw00f $domain -a -o waf.txt
+echo -e "\n\033[36m[+] Finding vulnerabilities with Nuclei on $domain 🔍\033[m"
+#nuclei -t /home/rupesh/nuclei-templates/ --target $domain -o nuclei.txt --silent
+echo -e "\n\033[36m[+] Finding IP of $domain 🔍\033[m"
+echo $domain > temp_domain.txt
+dnsx --silent -l temp_domain.txt -resp | awk '{print $2}' | tr -d "[]" > ip_only.txt
+echo -e "\n\033[36mFound: `cat ip_only.txt` \033[m"
+echo -e "\n\033[36m[+] Running nmap on `cat ip_only.txt` 🔍\033[m"
+nmap -iL ip_only.txt --top-ports 10000 --max-rate=50000 -oG nmap.txt
+
