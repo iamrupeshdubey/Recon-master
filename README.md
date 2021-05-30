@@ -4,6 +4,7 @@ A shell script which automates the basic reconnaissance of a website and gathers
 
 # To-Do
 Add more automated tools for making the work easier
+Installation File for these tools
 
 # Credits
 * [wafw00f](https://github.com/EnableSecurity/wafw00f)
